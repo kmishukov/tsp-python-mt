@@ -1,7 +1,7 @@
 # Mishukov Konstantin
 # 2021
 
-
+import os
 import getopt
 from multiprocessing import *
 import sys
@@ -47,7 +47,7 @@ matrix = parsefile(path)
 matrix_size: int = len(matrix)
 
 maxsize = float('inf')
-best_solution_record = float('inf')
+# best_solution_record = float('inf')
 best_solution = None
 solutions_queue = Queue()
 
@@ -71,22 +71,21 @@ def calculate_bound(solution) -> float:
     return summary * 0.5
 
 
-def make_branches(solution, flag, sharedQueue):
-    with flag.get_lock():
-        flag.value += 1
-    global best_solution_record
+def make_branches(solution, flag, sharedQueue, best_solution_record):
+    # flag.value += 1
     global best_solution
     if solution.number_of_included_branches() >= matrix_size - 2:
         include_branches_if_needed(solution)
         solution_total_bound = solution.current_bound()
         # print("Tree finished:", solution_total_bound)
-        if solution_total_bound < best_solution_record:
-            best_solution_record = solution.current_bound()
+        if solution_total_bound < best_solution_record.value:
+            with best_solution_record.get_lock():
+                best_solution_record.value = solution.current_bound()
             best_solution = solution
-            print('Record updated:', best_solution_record, 'Process:', multiprocessing.current_process())
-        with flag.get_lock():
-            flag.value -= 1
+            print('Record updated:', best_solution_record.value, 'Process:', multiprocessing.current_process())
+        # flag.value -= 1
         return
+
     for i in range(matrix_size):
         if solution.has_two_adjacents_to_node(i):
             continue
@@ -108,7 +107,7 @@ def make_branches(solution, flag, sharedQueue):
             new_solution2.update_solution_with_missing_branches_if_needed(None)
 
             s1_bound = new_solution1.current_bound()
-            if s1_bound <= best_solution_record and new_solution1.impossible is False:
+            if s1_bound <= best_solution_record.value and new_solution1.impossible is False:
                 sharedQueue.put(new_solution1)
             # else:
             #     if new_solution1.impossible is True:
@@ -116,29 +115,19 @@ def make_branches(solution, flag, sharedQueue):
             #     else:
             #         print('Solution pruned: ', best_solution_record, "<", new_solution1.current_bound())
             s2_bound = new_solution2.current_bound()
-            if s2_bound <= best_solution_record and new_solution2.impossible is False:
+            if s2_bound <= best_solution_record.value and new_solution2.impossible is False:
                 sharedQueue.put(new_solution2)
             # else:
             #     if new_solution2.impossible is True:
             #         print('Impossible solution, pruned.')
             #     else:
             #         print('Solution pruned: ', best_solution_record, "<", new_solution2.current_bound())
-            with flag.get_lock():
-                flag.value -= 1
+            # flag.value -= 1
+            # print('Exit 1:', flag.value)
             return
-    with flag.get_lock():
-        flag.value -= 1
 
-# def update_solution_with_missing_branches(solution):
-#     did_change = True
-#     added_branch = None
-#     while did_change is True:
-#         if added_branch != None:
-#             did_change = exclude_possible_short_circuit_after_adding_branch(added_branch)
-#             added_branch = None
-
-
-
+    # print('Exit 2', flag)
+    # flag.value -= 1
 
 class Branch:
     def __init__(self, node_a, node_b):
@@ -294,6 +283,7 @@ def include_branches_if_needed(solution) -> Optional[Branch]:
                     # exclude_possible_short_circuit_after_adding_branch(solution, current_branch)
     return None
 
+
 def exclude_possible_short_circuit_after_adding_branch(solution, branch: Branch) -> bool:
     did_exclude = False
     if solution.number_of_included_branches() == matrix_size - 1:
@@ -322,6 +312,7 @@ def exclude_possible_short_circuit_after_adding_branch(solution, branch: Branch)
                 did_exclude = True
     return did_exclude
 
+
 def has_included_adjacents(solution, branch) -> bool:
     node_a_included = False
     node_b_included = False
@@ -343,25 +334,25 @@ def are_incident(branch1: Branch, branch2: Branch) -> bool:
            branch1.nodeB == branch2.nodeA or branch1.nodeB == branch2.nodeB
 
 
-def print_results():
-    print('Algorithm finished\n')
-    print('Best solution is: ', best_solution_record)
-    best_solution.print_solution()
-
-processes = []
-
-def mt_func(queue, p_counter):
+def mt_func(queue, p_counter, best_solution_record):
+    # while queue.get() and p_counter != 0:
+    print(os.getpid(), "working")
     while True:
-        solution = queue.get()
-        if solution is not None:
-            make_branches(solution, p_counter, queue)
-        if queue.qsize() == 0:
-            print_results()
+        # time.sleep(0.1)
+        try:
+            solution = queue.get(block=True, timeout=0.001)
+        except:
+            print('Queue is empty')
             break
-
+       # print('Flag before: ',p_counter.value)
+        with p_counter.get_lock():
+            p_counter.value += 1
+        make_branches(solution, p_counter, queue, best_solution_record)
+        with p_counter.get_lock():
+            p_counter.value -= 1
+        #print('Flag after: ', p_counter.value)
 
 if __name__ == '__main__':
-
     initial_solution = Solution()
     solutions_queue.enqueue(initial_solution)
     counter = 0
@@ -369,25 +360,54 @@ if __name__ == '__main__':
 
     m = multiprocessing.Manager()
     sharedQueue = m.Queue()
+
     p_counter = Value('i', 0)
+    best_solution_record = Value('f', float('inf'))
 
     sharedQueue.put(initial_solution)
 
-    p1 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter))
-    p2 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter))
-    p3 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter))
-    p4 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter))
+    # pool = multiprocessing.Pool(4, mt_func, (sharedQueue, p_counter, best_solution_record))
 
-    p1.start()
-    p2.start()
-    p3.start()
-    p4.start()
+    print("before")
 
-    p1.join()
-    p2.join()
-    p3.join()
-    p4.join()
+    # sharedQueue.join()
 
+    print('after')
+
+    processes = {}
+
+    num_processes = 5
+
+    for n in range(num_processes):
+        processes[n] = Process(target=mt_func, args=(sharedQueue, p_counter, best_solution_record))
+        processes[n].start()
+
+    for k in range(num_processes):
+        processes[k].join()
+
+
+    # p1 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter, best_solution_record))
+    # p2 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter, best_solution_record))
+    # p3 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter, best_solution_record))
+    # p4 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter, best_solution_record))
+    # #
+    # p1.start()
+    # p2.start()
+    # p3.start()
+    # p4.start()
+
+    # p1.join()
+    # p2.join()
+    # p3.join()
+    # p4.join()
+
+    # time.sleep(15)
+    #
+    def print_results():
+        print('Algorithm finished\n')
+        print('Best solution is: ', best_solution_record.value)
+        # best_solution.print_solution()
+    #
     print_results()
     end = time.time()
     time_delta = end - start

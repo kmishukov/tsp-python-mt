@@ -339,17 +339,9 @@ if __name__ == '__main__':
 
     sharedQueue.put(initial_solution)
 
-    # pool = multiprocessing.Pool(4, mt_func, (sharedQueue, p_counter, best_solution_record))
-
-    print("before")
-
-    # sharedQueue.join()
-
-    print('after')
-
     processes = {}
 
-    num_processes = 2
+    num_processes = 4
 
     for n in range(num_processes):
         processes[n] = Process(target=mt_func, args=(sharedQueue, p_counter, best_solution_record))
@@ -358,29 +350,10 @@ if __name__ == '__main__':
     for k in range(num_processes):
         processes[k].join()
 
-
-    # p1 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter, best_solution_record))
-    # p2 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter, best_solution_record))
-    # p3 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter, best_solution_record))
-    # p4 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter, best_solution_record))
-    # #
-    # p1.start()
-    # p2.start()
-    # p3.start()
-    # p4.start()
-
-    # p1.join()
-    # p2.join()
-    # p3.join()
-    # p4.join()
-
-    # time.sleep(15)
-    #
     def print_results():
         print('Algorithm finished\n')
         print('Best solution is: ', best_solution_record.value)
-        # best_solution.print_solution()
-    #
+
     print_results()
     end = time.time()
     time_delta = end - start

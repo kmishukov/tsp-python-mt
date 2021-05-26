@@ -312,18 +312,20 @@ def are_incident(branch1: Branch, branch2: Branch) -> bool:
 
 
 def mt_func(queue, p_counter, best_solution_record):
-    #print(os.getpid(), "working")
+    print(os.getpid(), "working")
     while True:
+        # print('Active processes:',p_counter.value)
         try:
-            solution = queue.get(block=True, timeout=0.001)
+            solution = queue.get(block=True, timeout=0.0001)
         except:
             if p_counter.value == 0:
                 break
-        with p_counter.get_lock():
-            p_counter.value += 1
-        make_branches(solution, queue, best_solution_record)
-        with p_counter.get_lock():
-            p_counter.value -= 1
+        if solution is not None:
+            with p_counter.get_lock():
+                p_counter.value += 1
+            make_branches(solution, queue, best_solution_record)
+            with p_counter.get_lock():
+                p_counter.value -= 1
 
 if __name__ == '__main__':
     initial_solution = Solution()

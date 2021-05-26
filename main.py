@@ -3,7 +3,7 @@
 
 
 import getopt
-import multiprocessing
+from multiprocessing import *
 import sys
 import time
 from typing import Optional
@@ -14,7 +14,43 @@ import numpy as np
 
 # main.py -i m.txt
 
-matrix_size = 0
+path = ''
+try:
+    opts, args = getopt.getopt(sys.argv[1:], "hi:", ["ifile="])
+except getopt.GetoptError:
+    print('main.py -i <inputfile>')
+    sys.exit(2)
+for opt, arg in opts:
+    if opt == '-h':
+        print('main.py -i <inputfile>')
+        sys.exit()
+    elif opt in ("-i", "--ifile"):
+        path = arg
+
+if path == "":
+    print('Missing parameters.')
+    print('main.py -i <inputfile>')
+    sys.exit(2)
+
+
+def parsefile(filepath):
+    try:
+        mtx = np.loadtxt(filepath, dtype='int')
+        print('Input Matrix:\n', mtx)
+        return mtx
+    except IOError:
+        print("Error: file could not be opened")
+        sys.exit(2)
+
+
+matrix = parsefile(path)
+matrix_size: int = len(matrix)
+
+maxsize = float('inf')
+best_solution_record = float('inf')
+best_solution = None
+solutions_queue = Queue()
+
 
 # Calculate lower bound on any given solution (step);
 def calculate_bound(solution) -> float:
@@ -36,18 +72,20 @@ def calculate_bound(solution) -> float:
 
 
 def make_branches(solution, flag, sharedQueue):
-    flag.set(flag.get() + 1)
-
+    with flag.get_lock():
+        flag.value += 1
     global best_solution_record
     global best_solution
     if solution.number_of_included_branches() >= matrix_size - 2:
         include_branches_if_needed(solution)
         solution_total_bound = solution.current_bound()
-        print("Tree finished:", solution_total_bound)
+        # print("Tree finished:", solution_total_bound)
         if solution_total_bound < best_solution_record:
             best_solution_record = solution.current_bound()
             best_solution = solution
-            print('Record updated:', best_solution_record)
+            print('Record updated:', best_solution_record, 'Process:', multiprocessing.current_process())
+        with flag.get_lock():
+            flag.value -= 1
         return
     for i in range(matrix_size):
         if solution.has_two_adjacents_to_node(i):
@@ -72,21 +110,24 @@ def make_branches(solution, flag, sharedQueue):
             s1_bound = new_solution1.current_bound()
             if s1_bound <= best_solution_record and new_solution1.impossible is False:
                 sharedQueue.put(new_solution1)
-            else:
-                if new_solution1.impossible is True:
-                    print('Impossible solution, pruned.')
-                else:
-                    print('Solution pruned: ', best_solution_record, "<", new_solution1.current_bound())
+            # else:
+            #     if new_solution1.impossible is True:
+            #         print('Impossible solution, pruned.')
+            #     else:
+            #         print('Solution pruned: ', best_solution_record, "<", new_solution1.current_bound())
             s2_bound = new_solution2.current_bound()
             if s2_bound <= best_solution_record and new_solution2.impossible is False:
                 sharedQueue.put(new_solution2)
-            else:
-                if new_solution2.impossible is True:
-                    print('Impossible solution, pruned.')
-                else:
-                    print('Solution pruned: ', best_solution_record, "<", new_solution2.current_bound())
-            flag.set(flag.get() - 1)
+            # else:
+            #     if new_solution2.impossible is True:
+            #         print('Impossible solution, pruned.')
+            #     else:
+            #         print('Solution pruned: ', best_solution_record, "<", new_solution2.current_bound())
+            with flag.get_lock():
+                flag.value -= 1
             return
+    with flag.get_lock():
+        flag.value -= 1
 
 # def update_solution_with_missing_branches(solution):
 #     did_change = True
@@ -306,61 +347,20 @@ def print_results():
     print('Algorithm finished\n')
     print('Best solution is: ', best_solution_record)
     best_solution.print_solution()
-    end = time.time()
-    time_delta = end - start
-    if time_delta < 1:
-        time_delta = round(time_delta, 6)
-    else:
-        time_delta = round(time_delta, 3)
-    print('Time elapsed:', time_delta)
 
-def mt_func(queue, flag):
+processes = []
+
+def mt_func(queue, p_counter):
     while True:
         solution = queue.get()
-        make_branches(solution, flag, queue)
-        # if flag.get() == 0 and queue.size() == 0:
-        #     print_results()
-        #     break
+        if solution is not None:
+            make_branches(solution, p_counter, queue)
+        if queue.qsize() == 0:
+            print_results()
+            break
 
 
 if __name__ == '__main__':
-
-    path = ''
-    try:
-        opts, args = getopt.getopt(sys.argv[1:], "hi:", ["ifile="])
-    except getopt.GetoptError:
-        print('main.py -i <inputfile>')
-        sys.exit(2)
-    for opt, arg in opts:
-        if opt == '-h':
-            print('main.py -i <inputfile>')
-            sys.exit()
-        elif opt in ("-i", "--ifile"):
-            path = arg
-
-    if path == "":
-        print('Missing parameters.')
-        print('main.py -i <inputfile>')
-        sys.exit(2)
-
-
-    def parsefile(filepath):
-        try:
-            mtx = np.loadtxt(filepath, dtype='int')
-            print('Input Matrix:\n', mtx)
-            return mtx
-        except IOError:
-            print("Error: file could not be opened")
-            sys.exit(2)
-
-
-    matrix = parsefile(path)
-    matrix_size: int = len(matrix)
-
-    maxsize = float('inf')
-    best_solution_record = float('inf')
-    best_solution = None
-    solutions_queue = Queue()
 
     initial_solution = Solution()
     solutions_queue.enqueue(initial_solution)
@@ -369,14 +369,14 @@ if __name__ == '__main__':
 
     m = multiprocessing.Manager()
     sharedQueue = m.Queue()
-    p_flag = m.Value(typecode=1, value=0)
+    p_counter = Value('i', 0)
 
     sharedQueue.put(initial_solution)
 
-    p1 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_flag))
-    p2 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_flag))
-    p3 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_flag))
-    p4 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_flag))
+    p1 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter))
+    p2 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter))
+    p3 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter))
+    p4 = multiprocessing.Process(target=mt_func, args=(sharedQueue, p_counter))
 
     p1.start()
     p2.start()
@@ -388,3 +388,11 @@ if __name__ == '__main__':
     p3.join()
     p4.join()
 
+    print_results()
+    end = time.time()
+    time_delta = end - start
+    if time_delta < 1:
+        time_delta = round(time_delta, 6)
+    else:
+        time_delta = round(time_delta, 3)
+    print('\nTime elapsed:', time_delta)

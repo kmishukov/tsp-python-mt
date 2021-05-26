@@ -71,19 +71,16 @@ def calculate_bound(solution) -> float:
     return summary * 0.5
 
 
-def make_branches(solution, flag, sharedQueue, best_solution_record):
-    # flag.value += 1
+def make_branches(solution, sharedQueue, best_solution_record):
     global best_solution
     if solution.number_of_included_branches() >= matrix_size - 2:
         include_branches_if_needed(solution)
         solution_total_bound = solution.current_bound()
-        # print("Tree finished:", solution_total_bound)
         if solution_total_bound < best_solution_record.value:
             with best_solution_record.get_lock():
                 best_solution_record.value = solution.current_bound()
             best_solution = solution
             print('Record updated:', best_solution_record.value, 'Process:', multiprocessing.current_process())
-        # flag.value -= 1
         return
 
     for i in range(matrix_size):
@@ -109,25 +106,10 @@ def make_branches(solution, flag, sharedQueue, best_solution_record):
             s1_bound = new_solution1.current_bound()
             if s1_bound <= best_solution_record.value and new_solution1.impossible is False:
                 sharedQueue.put(new_solution1)
-            # else:
-            #     if new_solution1.impossible is True:
-            #         print('Impossible solution, pruned.')
-            #     else:
-            #         print('Solution pruned: ', best_solution_record, "<", new_solution1.current_bound())
             s2_bound = new_solution2.current_bound()
             if s2_bound <= best_solution_record.value and new_solution2.impossible is False:
                 sharedQueue.put(new_solution2)
-            # else:
-            #     if new_solution2.impossible is True:
-            #         print('Impossible solution, pruned.')
-            #     else:
-            #         print('Solution pruned: ', best_solution_record, "<", new_solution2.current_bound())
-            # flag.value -= 1
-            # print('Exit 1:', flag.value)
             return
-
-    # print('Exit 2', flag)
-    # flag.value -= 1
 
 class Branch:
     def __init__(self, node_a, node_b):
@@ -235,15 +217,10 @@ class Solution:
                 did_exclude = exclude_possible_short_circuit_after_adding_branch(self, new_branch)
             else:
                 did_exclude = False
-            # if did_exclude is True or did_change is True:
             new_branch = include_branches_if_needed(self)
             if new_branch == Branch(-1, -1):
                 self.impossible = True
                 return
-            # else:
-            #     new_branch = None
-
-
 
 def exclude_branches_for_filled_nodes(solution) -> bool:
     did_change = False
@@ -335,22 +312,18 @@ def are_incident(branch1: Branch, branch2: Branch) -> bool:
 
 
 def mt_func(queue, p_counter, best_solution_record):
-    # while queue.get() and p_counter != 0:
-    print(os.getpid(), "working")
+    #print(os.getpid(), "working")
     while True:
-        # time.sleep(0.1)
         try:
             solution = queue.get(block=True, timeout=0.001)
         except:
-            print('Queue is empty')
-            break
-       # print('Flag before: ',p_counter.value)
+            if p_counter.value == 0:
+                break
         with p_counter.get_lock():
             p_counter.value += 1
-        make_branches(solution, p_counter, queue, best_solution_record)
+        make_branches(solution, queue, best_solution_record)
         with p_counter.get_lock():
             p_counter.value -= 1
-        #print('Flag after: ', p_counter.value)
 
 if __name__ == '__main__':
     initial_solution = Solution()
@@ -376,7 +349,7 @@ if __name__ == '__main__':
 
     processes = {}
 
-    num_processes = 5
+    num_processes = 2
 
     for n in range(num_processes):
         processes[n] = Process(target=mt_func, args=(sharedQueue, p_counter, best_solution_record))

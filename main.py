@@ -15,8 +15,9 @@ import numpy as np
 # main.py -i m.txt
 
 path = ''
+testing = False
 try:
-    opts, args = getopt.getopt(sys.argv[1:], "hi:", ["ifile="])
+    opts, args = getopt.getopt(sys.argv[1:], "hi:t", ["ifile="])
 except getopt.GetoptError:
     print('main.py -i <inputfile>')
     sys.exit(2)
@@ -24,6 +25,8 @@ for opt, arg in opts:
     if opt == '-h':
         print('main.py -i <inputfile>')
         sys.exit()
+    elif opt == '-t':
+        testing = True
     elif opt in ("-i", "--ifile"):
         path = arg
 
@@ -73,7 +76,7 @@ def calculate_bound(solution) -> float:
 
 def make_branches(solution, sharedQueue, best_solution_record):
     global best_solution
-    if solution.number_of_included_branches() >= matrix_size - 2:
+    if solution.number_of_included_branches() >= matrix_size - 1:
         include_branches_if_needed(solution)
         solution_total_bound = solution.current_bound()
         if solution_total_bound < best_solution_record.value:
@@ -315,6 +318,7 @@ def mt_func(queue, p_counter, best_solution_record):
     print(os.getpid(), "working")
     while True:
         # print('Active processes:',p_counter.value)
+        solution = None
         try:
             solution = queue.get(block=True, timeout=0.0001)
         except:
@@ -343,7 +347,7 @@ if __name__ == '__main__':
 
     processes = {}
 
-    num_processes = 4
+    num_processes = 8
 
     for n in range(num_processes):
         processes[n] = Process(target=mt_func, args=(sharedQueue, p_counter, best_solution_record))

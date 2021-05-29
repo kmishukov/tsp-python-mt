@@ -12,18 +12,18 @@ from myQueue import Queue
 
 import numpy as np
 
-# main.py -i m.txt
+# tspmt.py -i m.txt
 
 path = ''
 testing = False
 try:
     opts, args = getopt.getopt(sys.argv[1:], "hi:t", ["ifile="])
 except getopt.GetoptError:
-    print('main.py -i <inputfile>')
+    print('tspmt.py -i <inputfile>')
     sys.exit(2)
 for opt, arg in opts:
     if opt == '-h':
-        print('main.py -i <inputfile>')
+        print('tspmt.py -i <inputfile>')
         sys.exit()
     elif opt == '-t':
         testing = True
@@ -32,28 +32,19 @@ for opt, arg in opts:
 
 if path == "":
     print('Missing parameters.')
-    print('main.py -i <inputfile>')
+    print('tspmt.py -i <inputfile>')
     sys.exit(2)
 
 
 def parsefile(filepath):
     try:
         mtx = np.loadtxt(filepath, dtype='int')
-        print('Input Matrix:\n', mtx)
+        if testing is False:
+            print('Input Matrix:\n', mtx)
         return mtx
     except IOError:
         print("Error: file could not be opened")
         sys.exit(2)
-
-
-matrix = parsefile(path)
-matrix_size: int = len(matrix)
-
-maxsize = float('inf')
-# best_solution_record = float('inf')
-best_solution = None
-solutions_queue = Queue()
-
 
 # Calculate lower bound on any given solution (step);
 def calculate_bound(solution) -> float:
@@ -75,15 +66,16 @@ def calculate_bound(solution) -> float:
 
 
 def make_branches(solution, sharedQueue, best_solution_record):
-    global best_solution
+    global matrix_size
+    matrix_size = len(solution.matrix)
     if solution.number_of_included_branches() >= matrix_size - 1:
         include_branches_if_needed(solution)
         solution_total_bound = solution.current_bound()
         if solution_total_bound < best_solution_record.value:
             with best_solution_record.get_lock():
                 best_solution_record.value = solution.current_bound()
-            best_solution = solution
-            print('Record updated:', best_solution_record.value, 'Process:', multiprocessing.current_process())
+            if testing is False:
+                print('Record updated:', best_solution_record.value, 'Process:', multiprocessing.current_process())
         return
 
     for i in range(matrix_size):
@@ -96,12 +88,12 @@ def make_branches(solution, sharedQueue, best_solution_record):
             if current_branch in solution.branches.keys():
                 continue
 
-            new_solution1 = Solution()
+            new_solution1 = Solution(solution.matrix)
             new_solution1.branches = solution.branches.copy()
             new_solution1.branches[current_branch] = True
             new_solution1.update_solution_with_missing_branches_if_needed(current_branch)
 
-            new_solution2 = Solution()
+            new_solution2 = Solution(solution.matrix)
             new_solution2.branches = solution.branches.copy()
             new_solution2.branches[current_branch] = False
             new_solution2.update_solution_with_missing_branches_if_needed(None)
@@ -146,12 +138,15 @@ class Branch:
 
 
 class Solution:
-    def __init__(self):
-        self.impossible = False
+    def __init__(self, mtx):
         self.branches = dict()
+        self.matrix = mtx
+        self.impossible = False
 
     def current_bound(self):
         summary = 0
+        matrix_size = len(self.matrix)
+        matrix = self.matrix
         for i in range(matrix_size):
             first_minimum = float('inf')
             second_minimum = float('inf')
@@ -225,6 +220,7 @@ class Solution:
                 self.impossible = True
                 return
 
+
 def exclude_branches_for_filled_nodes(solution) -> bool:
     did_change = False
     for i in range(matrix_size):
@@ -237,7 +233,6 @@ def exclude_branches_for_filled_nodes(solution) -> bool:
                     solution.branches[branch_to_exclude] = False
                     did_change = True
     return did_change
-
 
 
 def include_branches_if_needed(solution) -> Optional[Branch]:
@@ -315,9 +310,9 @@ def are_incident(branch1: Branch, branch2: Branch) -> bool:
 
 
 def mt_func(queue, p_counter, best_solution_record):
-    print(os.getpid(), "working")
+    if testing is False:
+        print(os.getpid(), "working")
     while True:
-        # print('Active processes:',p_counter.value)
         solution = None
         try:
             solution = queue.get(block=True, timeout=0.0001)
@@ -331,23 +326,27 @@ def mt_func(queue, p_counter, best_solution_record):
             with p_counter.get_lock():
                 p_counter.value -= 1
 
+
 if __name__ == '__main__':
-    initial_solution = Solution()
-    solutions_queue.enqueue(initial_solution)
-    counter = 0
     start = time.time()
+
+    matrix = parsefile(path)
+    matrix_size: int = len(matrix)
+
+    initial_solution = Solution(matrix)
 
     m = multiprocessing.Manager()
     sharedQueue = m.Queue()
-
-    p_counter = Value('i', 0)
-    best_solution_record = Value('f', float('inf'))
-
     sharedQueue.put(initial_solution)
 
-    processes = {}
+    # Counter of processes, who actually work;
+    p_counter = Value('i', 0)
 
-    num_processes = 8
+    # Variable stores best solution record;
+    best_solution_record = Value('f', float('inf'))
+
+    processes = {}
+    num_processes = 4
 
     for n in range(num_processes):
         processes[n] = Process(target=mt_func, args=(sharedQueue, p_counter, best_solution_record))
@@ -356,15 +355,23 @@ if __name__ == '__main__':
     for k in range(num_processes):
         processes[k].join()
 
+    end = time.time()
+
     def print_results():
         print('Algorithm finished\n')
         print('Best solution is: ', best_solution_record.value)
 
-    print_results()
-    end = time.time()
+    if testing is False:
+        print_results()
+
     time_delta = end - start
     if time_delta < 1:
         time_delta = round(time_delta, 6)
     else:
         time_delta = round(time_delta, 3)
-    print('\nTime elapsed:', time_delta)
+    if testing is False:
+        print('Time elapsed:', time_delta)
+    if testing is True:
+        answer = str(matrix_size) + ' ' + str(time_delta)
+        file = open("tests.txt", 'a')
+        file.write(answer + '\n')
